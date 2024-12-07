@@ -55,6 +55,11 @@ def main():
         action=argparse.BooleanOptionalAction
     )
     parser.add_argument(
+        '--sobel', 
+        default=False, 
+        action=argparse.BooleanOptionalAction
+    )
+    parser.add_argument(
         '-sixs_path',
         default=None,
         help='SIXS Installation DIR'
@@ -69,7 +74,6 @@ def main():
     args.training = args.train == 1
     args.cleanup = args.cleanup == 1
 
-
     dayofyear = 200
 
     paths = Paths(
@@ -77,57 +81,91 @@ def main():
         args.training
     )
 
-    if args.train:
-        to_solar_zenith_lut = [0, 12.5, 25, 37.5, 50]
-        to_solar_azimuth_lut = [180]
-        to_sensor_azimuth_lut = [180]
-        to_sensor_zenith_lut = [140, 160, 180]
-        altitude_km_lut = [2, 4, 7, 10, 15, 25]
-        elevation_km_lut = [0, 0.75, 1.5, 2.25, 4.5]
-        h2o_lut_grid = (
-            np.round(np.linspace(0.1, 5, num=5), 3).tolist() + [0.6125]
-        )
-        h2o_lut_grid.sort()
-        aerfrac_2_lut_grid = (
-            np.round(np.linspace(0.01, 1, num=5), 3).tolist() + [0.5]
-        )
-        aerfrac_2_lut_grid.sort()
-        relative_azimuth_lut = np.abs(
-            np.array(to_solar_azimuth_lut) 
-            - np.array(to_sensor_azimuth_lut)
-        )
-        relative_azimuth_lut = np.minimum(
-            relative_azimuth_lut, 
-            360 - relative_azimuth_lut
-        )
-
+    if args.sobel:
+        if args.train:
+            # Get bounds from regular grid
+            bounds = {
+                'to_solar_zenith_bnds': [0, 50, 2],
+                'to_sensor_zenith_bnds': [140, 180, 2],
+                'altitude_km_bnds': [2, 25, 2],
+                'elevation_km_bnds': [0.01, 4.5, 2],
+                'h2o_bnds': [0.1, 5, 3],
+                'aerfrac_2_bnds': [0.01, 1, 3],
+            }
+            consts = {
+                'to_solar_azimuth_bnds': 180,
+                'to_sensor_azimuth_bnds': 180,
+            }
+            grid = sobel_lut(bounds, consts)
+        else:
+            # Get bounds from regular grid
+            bounds = {
+                'to_solar_zenith_bnds': [0, 50, 3],
+                'to_sensor_zenith_bnds': [140, 180, 3],
+                'altitude_km_bnds': [2, 25, 3],
+                'elevation_km_bnds': [0.01, 4.5, 3],
+                'h2o_bnds': [0.1, 5, 5],
+                'aerfrac_2_bnds': [0.01, 1, 5],
+            }
+            consts = {
+                'to_solar_azimuth_bnds': 180,
+                'to_sensor_azimuth_bnds': 180,
+            }
+            rid = sobel_lut(bounds, consts)
     else:
-        # HOLDOUT SET
-        to_solar_zenith_lut = [6, 18, 30,45]
-        to_solar_azimuth_lut = [60, 300]
-        to_sensor_azimuth_lut = [180]
-        to_sensor_zenith_lut = [145, 155, 165, 175]
-        altitude_km_lut = [3, 5.5, 8.5, 12.5, 17.5]
-        elevation_km_lut = [0.325, 1.025, 1.875, 2.575, 4.2]
-        h2o_lut_grid = np.round(np.linspace(0.5, 4.5, num=4), 3)
-        aerfrac_2_lut_grid = np.round(np.linspace(0.125, 0.9, num=4), 3)
-        relative_azimuth_lut = np.abs(
-            np.array(to_solar_azimuth_lut) 
-            - np.array(to_sensor_azimuth_lut)
-        )
-        relative_azimuth_lut = np.minimum(
-            relative_azimuth_lut, 
-            360 - relative_azimuth_lut
-        )
+        if args.train:
+            grid = {
+                'to_solar_zenith_lut': [0, 12.5, 25, 37.5, 50],
+                'to_solar_azimuth_lut': [180],
+                'to_sensor_azimuth_lut': [180],
+                'to_sensor_zenith_lut': [140, 160, 180],
+                'altitude_km_lut': [2, 4, 7, 10, 15, 25],
+                'elevation_km_lut': [0, 0.75, 1.5, 2.25, 4.5],
+                'h2o_lut': list(np.sort(
+                    np.round(np.linspace(0.1, 5, num=5), 3).tolist() + [0.6125]
+                )),
+                'aerfrac_2_lut': list(np.sort(
+                    np.round(np.linspace(0.01, 1, num=5), 3).tolist() + [0.5]
+                ))
+            }
+            relative_azimuth_lut = np.abs(
+                np.array(grid['to_solar_azimuth_lut']) 
+                - np.array(grid['to_sensor_azimuth_lut'])
+            )
+            grid['relative_azimuth_lut'] = list(np.minimum(
+                relative_azimuth_lut, 
+                360 - relative_azimuth_lut
+            ))
+
+        else:
+            # HOLDOUT SET
+            grid = {
+                'to_solar_zenith_lut': [6, 18, 30,45],
+                'to_solar_azimuth_lut': [60, 300],
+                'to_sensor_azimuth_lut': [180],
+                'to_sensor_zenith_lut': [145, 155, 165, 175],
+                'altitude_km_lut': [3, 5.5, 8.5, 12.5, 17.5],
+                'elevation_km_lut': [0.325, 1.025, 1.875, 2.575, 4.2],
+                'h2o_lut': np.round(np.linspace(0.5, 4.5, num=4), 3),
+                'aerfrac_2_lut': np.round(np.linspace(0.125, 0.9, num=4), 3),
+            }
+            relative_azimuth_lut = np.abs(
+                np.array(grid['to_solar_azimuth_lut']) 
+                - np.array(grid['to_sensor_azimuth_lut'])
+            )
+            grid['relative_azimuth_lut'] = np.minimum(
+                relative_azimuth_lut, 
+                360 - relative_azimuth_lut
+            )
 
     n_lut_build = np.prod([
-        len(to_solar_zenith_lut),
-        len(to_sensor_zenith_lut),
-        len(relative_azimuth_lut),
-        len(altitude_km_lut),
-        len(elevation_km_lut),
-        len(h2o_lut_grid),
-        len(aerfrac_2_lut_grid)
+        len(grid['to_solar_zenith_lut']),
+        len(grid['to_sensor_zenith_lut']),
+        len(grid['relative_azimuth_lut']),
+        len(grid['altitude_km_lut']),
+        len(grid['elevation_km_lut']),
+        len(grid['h2o_lut']),
+        len(grid['aerfrac_2_lut'])
     ])
 
     print('Num LUTs to build: {}'.format(n_lut_build))
@@ -149,14 +187,14 @@ def main():
     write_modtran_template(
         atmosphere_type='ATM_MIDLAT_SUMMER', 
         fid=os.path.splitext(paths.modtran_template_file)[0],
-        altitude_km=altitude_km_lut[0],
+        altitude_km=grid['altitude_km_lut'][0],
         dayofyear=dayofyear, 
-        to_sensor_azimuth=to_sensor_azimuth_lut[0],
-        to_sensor_zenith=to_sensor_zenith_lut[0],
-        to_sun_zenith=to_solar_azimuth_lut[0],
-        relative_azimuth=relative_azimuth_lut[0],
+        to_sensor_azimuth=grid['to_sensor_azimuth_lut'][0],
+        to_sensor_zenith=grid['to_sensor_zenith_lut'][0],
+        to_sun_zenith=grid['to_solar_azimuth_lut'][0],
+        relative_azimuth=grid['relative_azimuth_lut'][0],
         gmtime=0, 
-        elevation_km=elevation_km_lut[0], 
+        elevation_km=grid['elevation_km_lut'][0], 
         output_file=paths.modtran_template_file,
         ihaze_type="AER_NONE",
     )
@@ -179,15 +217,15 @@ def main():
     configure_and_exit = args.configure_and_exit
     build_main_config(
         paths, 
-        h2o_lut_grid, 
-        elevation_km_lut, 
-        altitude_km_lut, 
-        to_sensor_zenith_lut, 
-        to_solar_zenith_lut, 
-        to_sensor_azimuth_lut, 
-        to_solar_azimuth_lut, 
-        relative_azimuth_lut,
-        aerfrac_2_lut_grid, 
+        grid['h2o_lut'], 
+        grid['elevation_km_lut'], 
+        grid['altitude_km_lut'], 
+        grid['to_sensor_zenith_lut'], 
+        grid['to_solar_zenith_lut'], 
+        grid['to_sensor_azimuth_lut'], 
+        grid['to_solar_azimuth_lut'], 
+        grid['relative_azimuth_lut'],
+        grid['aerfrac_2_lut'], 
         paths.isofit_config_file, 
         configure_and_exit=configure_and_exit,
         ip_head=args.ip_head,
@@ -222,8 +260,7 @@ def main():
     # Inits of engines based on radiative_transfer.py
     rt_config = config.forward_model.radiative_transfer
     instrument_config = config.forward_model.instrument
-
-    lut_grid = rt_config.lut_grid
+    lut_grid_config = rt_config.lut_grid
 
     _keys = [
         "interpolator_style",
@@ -579,40 +616,104 @@ def build_main_config(
         ))
 
 
-def sobol_lut():
-    to_solar_zenith_lut = [0, 12.5, 25, 37.5, 50]
-    to_solar_azimuth_lut = [180]
-    to_sensor_azimuth_lut = [180]
-    to_sensor_zenith_lut = [140, 160, 180]
-    altitude_km_lut = [2, 4, 7, 10, 15, 25]
-    elevation_km_lut = [0, 0.75, 1.5, 2.25, 4.5]
-    h2o_lut_grid = (
-        np.round(np.linspace(0.1, 5, num=5), 3).tolist() + [0.6125]
+def sobel_lut(bounds, consts={}, log=False):
+    """
+    Create a look using a Sobel sequence
+
+    Args:
+        bounds (dict): keys are the lut element names. Values (list) are the bounds (idx 0 and 1) of the sequence. idx 2 is the number of samples to take
+        ns (list): Number of samples to take from sequence for each bounds element. The length of bounds
+                  should math the length of n
+        consts (dict): keys are the lut element names. Values are the constant values to use
+        log (bool): Flag for log transform before sampling
+    Returns:
+        grid (dict): lut grid.
+    """
+
+    # Handle cos transform
+    cosd = lambda a : np.cos(np.deg2rad(a))
+    cos_keys = [
+        'to_solar_zenith_bnds',
+        'to_sensor_zenith_bnds',
+        'to_solar_azimuth_bnds',
+        'to_sensor_azimuth_bnds',
+    ]
+    for key, bnd in bounds.items():
+        if key in cos_keys:
+            bnd = [cosd(bnd[0]), cosd(bnd[1]), bnd[2]]
+            bounds[key] = bnd
+
+    # Handle input log transform
+    log_keys = [
+        'altitude_km_bnds',
+        'elevation_km_bnds',
+        'h2o_bnds',
+        'aerfrac_2_bnds',
+    ]
+    if log:
+        for key, bnd in bounds.items():
+            if key in log_keys:
+                bnd = [np.log(bnd[0]), np.log(bnd[1]), bnd[2]]
+                bounds[key] = bnd
+
+    # Sort bounds
+    for key, bnd in bounds.items():
+        bounds[key] = sorted(bnd[:-1]) + [bnd[2]]
+
+    # Make the sobel sequence
+    grid = {}
+    for key, value in bounds.items():
+        l_bound, r_bound = value[:-1]
+
+        # Not 100% sure if we need to scamble the sequence gen
+        sobol = qmc.Sobol(d=1, scramble=False)
+        seq = sobol.random(n=value[-1])
+        seq = qmc.scale(
+            seq, 
+            l_bounds=l_bound, 
+            u_bounds=r_bound
+        )
+
+        # Transform sample out of cos
+        if key in cos_keys:
+            seq = np.rad2deg(np.arccos(seq))
+
+        # Transform out of log space
+        if log:
+            if key in log_keys:
+                seq = np.exp(seq)
+
+        key_lut = '_'.join(key.split('_')[:-1] + ['lut'])
+        grid[key_lut] = [float(i) for i in seq]
+
+    # Add the constants onto the grid 
+    for key, value in consts.items():
+        key_lut = '_'.join(key.split('_')[:-1] + ['lut'])
+        grid[key_lut] = [float(value)]
+
+    # Add in relative azimuth
+    relative_azimuth = np.abs(
+        np.array(grid['to_solar_azimuth_lut'])
+        - np.array(grid['to_sensor_azimuth_lut'])
     )
-    h2o_lut_grid.sort()
-    aerfrac_2_lut_grid = (
-        np.round(np.linspace(0.01, 1, num=5), 3).tolist() + [0.5]
-    )
-    aerfrac_2_lut_grid.sort()
+    grid['relative_azimuth_lut'] = [float(i) for i in np.minimum(
+        relative_azimuth,
+        360 - relative_azimuth
+    )]
 
-    # Create a Sobol sequence generator
-    sobol = qmc.Sobol(d=2, scramble=False)  # d is the number of dimensions
+    # Trim out non-physical components 
+    # (e.g., elevation > observation altitude)
+    # The best way I can do this with uneven clolumns is to remove 
+    # alt that are below max elev
+    grid['altitude_km_lut'] = np.array(grid['altitude_km_lut'])[
+        grid['altitude_km_lut'] > np.max(grid['elevation_km_lut'])
+    ]
 
-    # Generate 100 Sobol points
-    sample = sobol.random(n=100)
+    # Do some cleaning a sorting 
+    for key, value in grid.items():
+        grid[key] = np.round(sorted(value), 4)
 
-    # Scale to the desired range (e.g., [0, 1])
-    sample = qmc.scale(sample, l_bounds=[0, 0], u_bounds=[1, 1])
-
-
-    relative_azimuth_lut = np.abs(
-        np.array(to_solar_azimuth_lut) 
-        - np.array(to_sensor_azimuth_lut)
-    )
-    relative_azimuth_lut = np.minimum(
-        relative_azimuth_lut, 
-        360 - relative_azimuth_lut
-    )
+    return grid
 
 
 if __name__ == '__main__':
