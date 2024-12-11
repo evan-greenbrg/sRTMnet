@@ -25,6 +25,7 @@ import ray
 import argparse
 from types import SimpleNamespace
 import logging
+import subprocess
 
 from scipy.stats import qmc
 
@@ -68,6 +69,11 @@ def main():
         '-modtran_path',
         default=None,
         help='MODTRAN Installation DIR'
+    )
+    parser.add_argument(
+        '--coarse', 
+        default=None, 
+        type=str
     )
     args = parser.parse_args()
 
@@ -115,14 +121,26 @@ def main():
     else:
         if args.train:
             grid = {
-                'to_solar_zenith_lut': [0, 12.5, 25, 37.5, 50],
-                'to_solar_azimuth_lut': [180],
-                'to_sensor_azimuth_lut': [180],
-                'to_sensor_zenith_lut': [140, 160, 180],
-                'altitude_km_lut': [2, 4, 7, 10, 15, 25],
-                'elevation_km_lut': [0, 0.75, 1.5, 2.25, 4.5],
+                #'to_solar_zenith_lut': [0, 12.5, 25, 37.5, 50],
+                #'to_solar_azimuth_lut': [0, 60, 120, 180],
+                #'to_sensor_azimuth_lut': [0],
+                #'to_sensor_zenith_lut': [140, 160, 180],
+                #'altitude_km_lut': [2, 4, 7, 10, 15, 25, 99],
+                #'elevation_km_lut': [0, 0.75, 1.5, 2.25, 4.5, 6],
+                #'h2o_lut': list(np.sort(
+                #    np.round(np.linspace(0.1, 5, num=5), 3).tolist() + [0.6125]
+                #)),
+                #'aerfrac_2_lut': list(np.sort(
+                #    np.round(np.linspace(0.01, 1, num=5), 3).tolist() + [0.5]
+                #))
+                'to_solar_zenith_lut': [0, 50],
+                'to_solar_azimuth_lut': [0, 180],
+                'to_sensor_azimuth_lut': [0],
+                'to_sensor_zenith_lut': [140, 180],
+                'altitude_km_lut': [2, 99],
+                'elevation_km_lut': [0, 6],
                 'h2o_lut': list(np.sort(
-                    np.round(np.linspace(0.1, 5, num=5), 3).tolist() + [0.6125]
+                    np.round(np.linspace(0.1, 5, num=2), 3).tolist() + [0.6125]
                 )),
                 'aerfrac_2_lut': list(np.sort(
                     np.round(np.linspace(0.01, 1, num=5), 3).tolist() + [0.5]
@@ -141,8 +159,8 @@ def main():
             # HOLDOUT SET
             grid = {
                 'to_solar_zenith_lut': [6, 18, 30,45],
-                'to_solar_azimuth_lut': [60, 300],
-                'to_sensor_azimuth_lut': [180],
+                'to_solar_azimuth_lut': [135],
+                'to_sensor_azimuth_lut': [0],
                 'to_sensor_zenith_lut': [145, 155, 165, 175],
                 'altitude_km_lut': [3, 5.5, 8.5, 12.5, 17.5],
                 'elevation_km_lut': [0.325, 1.025, 1.875, 2.575, 4.2],
@@ -174,16 +192,19 @@ def main():
     print('Expected MODTRAN runtime per (40-core) node: {} days'.format(n_lut_build*1.5/24/40))
     
     # Create wavelength file
-    wl = np.arange(0.350, 2.550, 0.0005)
-    wl_file_contents = np.zeros((len(wl),3))
-    wl_file_contents[:,0] = np.arange(len(wl),dtype=int)
-    wl_file_contents[:,1] = wl
-    wl_file_contents[:,2] = 0.0005
+    if args.coarse is None:
+        wl = np.arange(0.350, 2.550, 0.0005)
+        wl_file_contents = np.zeros((len(wl),3))
+        wl_file_contents[:,0] = np.arange(len(wl),dtype=int)
+        wl_file_contents[:,1] = wl
+        wl_file_contents[:,2] = 0.0005
 
-    np.savetxt(
-        paths.wavelength_file, 
-        wl_file_contents,fmt='%.5f'
-    )
+        np.savetxt(
+            paths.wavelength_file, 
+            wl_file_contents,fmt='%.5f'
+        )
+
+
     write_modtran_template(
         atmosphere_type='ATM_MIDLAT_SUMMER', 
         fid=os.path.splitext(paths.modtran_template_file)[0],
@@ -346,10 +367,21 @@ class Paths():
             self.support_dir,
             'aerosol_model.txt'
         )
-        self.wavelength_file = os.path.join(
-            self.support_dir,
-            'hifidelity_wavelengths.txt'
-        )
+
+        if args.coarse:
+            self.wavelength_file = os.path.join(
+                self.support_dir,
+                'coarse_wavelengths.txt'
+            )
+            if os.path.isfile(args.coarse) is False:
+               print(f'No wavelength file found for args.coarse at {args.coarse}') 
+               exit()
+            subprocess.call(f'cp {args.coarse} {self.wavelength_file}',shell=True)
+        else:
+            self.wavelength_file = os.path.join(
+                self.support_dir,
+                'hifidelity_wavelengths.txt'
+            )
 
         # If we want to format this with the data repo
         # self.earth_sun_distance_file = str(env.path("data", "emit_noise.txt")
@@ -359,7 +391,7 @@ class Paths():
         )
         self.irradiance_file = os.path.join(
             self.support_dir,
-            'prism_optimized_irr.dat'
+            'kurudz_0.1nm.dat'
         )
 
         if training:
@@ -439,7 +471,7 @@ def build_main_config(
                         paths.lut_modtran_directory,
                         'lut.nc'
                     ),
-                    "multipart_transmittance": False,
+                    "multipart_transmittance": True,
                     "template_file": paths.modtran_template_file,
                     "rte_configure_and_exit": configure_and_exit,
                     "engine_base_dir": paths.modtran_path,
@@ -463,7 +495,7 @@ def build_main_config(
                     "viewzen": 180 - to_sensor_zenith_lut_grid[0],
                     "solaz": to_solar_azimuth_lut_grid[0],
                     "solzen": to_solar_zenith_lut_grid[0],
-                    "multipart_transmittance": False,
+                    "multipart_transmittance": True,
                     "template_file": paths.modtran_template_file,
                     "rte_configure_and_exit": configure_and_exit,
                     "engine_base_dir": paths.sixs_path,
