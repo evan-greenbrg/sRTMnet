@@ -22,14 +22,15 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import os
-from isofit.radiative_transfer.modtran import ModtranRT
-from isofit.radiative_transfer.six_s import SixSRT
+from isofit.radiative_transfer.engines.modtran import ModtranRT
+from isofit.radiative_transfer.engines.six_s import SixSRT
 from isofit.configs import configs
 import argparse
 from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor
 import sklearn.metrics
 import ray
+from isofit.radiative_transfer.radiative_transfer import confPriority 
 
 
 
@@ -45,7 +46,7 @@ def main():
     # Parse arguments
     parser = argparse.ArgumentParser(description="built luts for emulation.")
     parser.add_argument('-config_file', type=str, default='templates/isofit_template.json')
-    parser.add_argument('-keys', type=str, default=['transm', 'rhoatm', 'sphalb'], nargs='+')
+    parser.add_argument('-keys', type=str, default=['rhoatm', 'sphalb', 'transm_down_dir', 'transm_down_dif', 'transm_up_dir', 'transm_up_dif' ], nargs='+')
     parser.add_argument('-munge_dir', type=str, default='munged')
 
     args = parser.parse_args()
@@ -59,10 +60,65 @@ def main():
             config = configs.create_new_config(args.config_file)
 
             # Note - this goes way faster if you comment out the Vector Interpolater build section in each of these
-            isofit_modtran = ModtranRT(config.forward_model.radiative_transfer.radiative_transfer_engines[0],
-                                       config, build_lut = False)
-            isofit_sixs = SixSRT(config.forward_model.radiative_transfer.radiative_transfer_engines[1],
-                                 config, build_lut = False)
+
+            rt_config = config.forward_model.radiative_transfer
+            instrument_config = config.forward_model.instrument
+
+            
+            params = {'engine_config': rt_config.radiative_transfer_engines[0]}
+            
+            params['lut_grid'] = confPriority('lut_grid', [params['engine_config'], instrument_config, rt_config])
+            params['lut_grid'] = {key: params['lut_grid'][key] for key in params['engine_config'].lut_names.keys()}
+            params['wavelength_file'] = confPriority('wavelength_file', [params['engine_config'], instrument_config, rt_config])
+            params['engine_config'].rte_configure_and_exit = False
+            params['engine_config'].rt_mode = 'rdn'
+            isofit_modtran = ModtranRT(**params)
+
+            params = {'engine_config' : rt_config.radiative_transfer_engines[1]}
+            
+            params['lut_grid'] = confPriority('lut_grid', [params['engine_config'], instrument_config, rt_config])
+            params['lut_grid'] = {key: params['lut_grid'][key] for key in params['engine_config'].lut_names.keys()}
+            params['engine_config'].rte_configure_and_exit = False
+            params['engine_config'].rt_mode = 'rdn'
+            params['wavelength_file'] = confPriority('wavelength_file', [params['engine_config'], instrument_config, rt_config])
+            isofit_sixs = SixSRT(**params)
+
+
+            point_dims = list(isofit_modtran.lut_grid.keys())
+            rtm_key = 'transm_down_dir'
+            for sp,mp,std_dir,mtd_dir, std_dif, mtd_dif, stu_dir, mtu_dir, stu_dif, mtu_dif, s_r, m_r  in zip(isofit_sixs.points, isofit_modtran.points, 
+                    isofit_sixs.lut['transm_down_dir'], isofit_modtran.lut['transm_down_dir'],
+                    isofit_sixs.lut['transm_down_dif'], isofit_modtran.lut['transm_down_dif'],
+                    isofit_sixs.lut['transm_up_dir'], isofit_modtran.lut['transm_up_dir'],
+                    isofit_sixs.lut['transm_up_dif'], isofit_modtran.lut['transm_up_dif'],
+                    isofit_sixs.lut['rhoatm'], isofit_modtran.lut['rhoatm'],
+                    ):
+                name='_'.join([f'{point_dims[x]}_{sp[x]}' for x in range(len(sp))])
+                plt.plot(isofit_sixs.wl, std_dir, color='black', label='t_down_dir')
+                plt.plot(isofit_sixs.wl, std_dif, color='grey', label='t_down_dif')
+                plt.plot(isofit_sixs.wl, stu_dir, color='red', label='t_up_dir')
+                plt.plot(isofit_sixs.wl, stu_dif, color='purple', label='t_up_dif')
+                plt.plot(isofit_sixs.wl, s_r, color='green', label='rhoatm')
+                
+                name2='_'.join([f'{point_dims[x]}_{mp[x]}' for x in range(len(mp))])
+                plt.plot(isofit_modtran.wl, mtd_dir, color='black', ls = '--')
+                plt.plot(isofit_modtran.wl, mtd_dif, color='grey', ls = '--')
+                plt.plot(isofit_modtran.wl, mtu_dir, color='red', ls = '--')
+                plt.plot(isofit_modtran.wl, mtu_dif, color='purple', ls = '--')
+                plt.plot(isofit_modtran.wl, m_r, color='green', ls = '--')
+
+                plt.legend(fontsize=4, loc='lower right')
+                
+                plt.title(f'S: {name}\n M: {name2}',fontsize=6)
+
+                plt.savefig(f'figs/{name.replace("\n","_")}.png',dpi=100)
+                plt.clf()
+
+            exit()
+            #import ipdb; ipdb.set_trace()
+            #sixs_results = 1
+            #modtran_results = 1
+
 
             sixs_results = get_obj_res(isofit_sixs, key, resample=False)
             modtran_results = get_obj_res(isofit_modtran, key)
@@ -108,25 +164,25 @@ def main():
     sixs_names = isofit_sixs.lut_names
     modtran_names = isofit_modtran.lut_names
 
-    if 'elev' in sixs_names:
-        sixs_names[sixs_names.index('elev')] = 'GNDALT'
-    if 'viewzen' in sixs_names:
-        sixs_names[sixs_names.index('viewzen')] = 'OBSZEN'
-    if 'viewaz' in sixs_names:
-        sixs_names[sixs_names.index('viewaz')] = 'TRUEAZ'
-    if 'alt' in sixs_names:
-        sixs_names[sixs_names.index('alt')] = 'H1ALT'
-    if 'AOT550' in sixs_names:
-        sixs_names[sixs_names.index('AOT550')] = 'AERFRAC_2'
+    #if 'elev' in sixs_names:
+    #    sixs_names[sixs_names.index('elev')] = 'GNDALT'
+    #if 'viewzen' in sixs_names:
+    #    sixs_names[sixs_names.index('viewzen')] = 'OBSZEN'
+    #if 'viewaz' in sixs_names:
+    #    sixs_names[sixs_names.index('viewaz')] = 'TRUEAZ'
+    #if 'alt' in sixs_names:
+    #    sixs_names[sixs_names.index('alt')] = 'H1ALT'
+    #if 'AOT550' in sixs_names:
+    #    sixs_names[sixs_names.index('AOT550')] = 'AERFRAC_2'
 
     reorder_sixs = [sixs_names.index(x) for x in modtran_names]
 
     points = isofit_modtran.points.copy()
     points_sixs = isofit_sixs.points.copy()[:,reorder_sixs]
 
-    if 'OBSZEN' in modtran_names:
-        print('adjusting')
-        points_sixs[:, modtran_names.index('OBSZEN')] = 180 - points_sixs[:, modtran_names.index('OBSZEN')]
+    #if 'OBSZEN' in modtran_names:
+    #    print('adjusting')
+    #    points_sixs[:, modtran_names.index('OBSZEN')] = 180 - points_sixs[:, modtran_names.index('OBSZEN')]
 
 
     ind = np.lexsort(tuple([points[:,x] for x in range(points.shape[-1])]))
@@ -176,7 +232,7 @@ def read_data_piece(ind, maxind, point, fn, key, resample, obj):
 def get_obj_res(obj, key, resample=True):
 
     # We don't want the VectorInterpolator, but rather the raw inputs
-    ray.init(temp_dir='/tmp/ray/brodrick/')
+    ray.init(_temp_dir='/local/ray/brodrick/')
     if hasattr(obj,'sixs_ngrid_init'):
         results = np.zeros((obj.points.shape[0],obj.sixs_ngrid_init), dtype=float)
     else:

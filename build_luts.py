@@ -122,29 +122,32 @@ def main():
         if args.train:
             grid = {
                 #'to_solar_zenith_lut': [0, 12.5, 25, 37.5, 50],
+                'to_solar_zenith_lut': [0, 30, 60],
                 #'to_solar_azimuth_lut': [0, 60, 120, 180],
-                #'to_sensor_azimuth_lut': [0],
-                #'to_sensor_zenith_lut': [140, 160, 180],
-                #'altitude_km_lut': [2, 4, 7, 10, 15, 25, 99],
+                'to_solar_azimuth_lut': [0, 90, 180],
+                'to_sensor_azimuth_lut': [0],
+                'to_sensor_zenith_lut': [140, 160, 180],
+                'altitude_km_lut': [2, 4, 7, 10, 15, 25, 99],
                 #'elevation_km_lut': [0, 0.75, 1.5, 2.25, 4.5, 6],
+                'elevation_km_lut': [0, 1.5, 4.5, 6],
+                'h2o_lut': list(np.sort(
+                    np.round(np.linspace(0.1, 5, num=5), 3).tolist()
+                )),
+                'aerfrac_2_lut': list(np.sort(
+                    np.round(np.linspace(0.01, 1, num=5), 3).tolist()
+                ))
+                #'to_solar_zenith_lut': [0, 50],
+                #'to_solar_azimuth_lut': [0, 180],
+                #'to_sensor_azimuth_lut': [0],
+                #'to_sensor_zenith_lut': [140, 180],
+                #'altitude_km_lut': [2, 99],
+                #'elevation_km_lut': [0, 6],
                 #'h2o_lut': list(np.sort(
-                #    np.round(np.linspace(0.1, 5, num=5), 3).tolist() + [0.6125]
+                #    np.round(np.linspace(0.1, 5, num=2), 3).tolist() + [0.6125]
                 #)),
                 #'aerfrac_2_lut': list(np.sort(
                 #    np.round(np.linspace(0.01, 1, num=5), 3).tolist() + [0.5]
                 #))
-                'to_solar_zenith_lut': [0, 50],
-                'to_solar_azimuth_lut': [0, 180],
-                'to_sensor_azimuth_lut': [0],
-                'to_sensor_zenith_lut': [140, 180],
-                'altitude_km_lut': [2, 99],
-                'elevation_km_lut': [0, 6],
-                'h2o_lut': list(np.sort(
-                    np.round(np.linspace(0.1, 5, num=2), 3).tolist() + [0.6125]
-                )),
-                'aerfrac_2_lut': list(np.sort(
-                    np.round(np.linspace(0.01, 1, num=5), 3).tolist() + [0.5]
-                ))
             }
             relative_azimuth_lut = np.abs(
                 np.array(grid['to_solar_azimuth_lut']) 
@@ -299,6 +302,7 @@ def main():
         for key in _keys
     }
     params["engine_config"] = modtran_engine_config 
+    params["build_interpolator"] = False 
     params['lut_grid'] = {
         key: params['lut_grid'][key] for key in
         modtran_engine_config.lut_names.keys()
@@ -313,6 +317,7 @@ def main():
         for key in _keys
     }
     params["engine_config"] = sixs_engine_config 
+    params["build_interpolator"] = False 
     params['lut_grid'] = {
         key: params['lut_grid'][key] for key in
         sixs_engine_config.lut_names.keys()
@@ -471,6 +476,8 @@ def build_main_config(
                         paths.lut_modtran_directory,
                         'lut.nc'
                     ),
+                    "rt_mode": 'rdn',
+                    "irradiance_file": paths.irradiance_file,
                     "multipart_transmittance": True,
                     "template_file": paths.modtran_template_file,
                     "rte_configure_and_exit": configure_and_exit,
@@ -480,6 +487,7 @@ def build_main_config(
                 },
                 "sixs": {
                     "engine_name": '6s',
+                    "rt_mode": 'rdn',
                     "sim_path": paths.lut_sixs_directory,
                     "lut_path": os.path.join(
                         paths.lut_sixs_directory,
