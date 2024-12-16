@@ -227,9 +227,15 @@ def main():
     with open(paths.modtran_template_file, 'r') as f:
         modtran_config = json.load(f)
 
-    modtran_config['MODTRAN'][0]['MODTRANINPUT']['GEOMETRY']['IPARM'] = 12
-    modtran_config['MODTRAN'][0]['MODTRANINPUT']['ATMOSPHERE']['H2OOPT'] = '+'
-    modtran_config['MODTRAN'][0]['MODTRANINPUT']['AEROSOLS']['VIS'] = 100
+    for n in range(len(modtran_config['MODTRAN'])):
+        modtran_config['MODTRAN'][n]['MODTRANINPUT']['GEOMETRY']['IPARM'] = 12
+        modtran_config['MODTRAN'][n]['MODTRANINPUT']['ATMOSPHERE']['H2OOPT'] = '+'
+        modtran_config['MODTRAN'][n]['MODTRANINPUT']['AEROSOLS']['VIS'] = 100
+        if args.coarse is not None:
+            modtran_config['MODTRAN'][n]['MODTRANINPUT']['SPECTRAL']['BMNAME'] = '05_2013'
+            modtran_config['MODTRAN'][n]['MODTRANINPUT']['SPECTRAL']['DV'] = 5
+            modtran_config['MODTRAN'][n]['MODTRANINPUT']['SPECTRAL']['FWHM'] = 5
+            
     with open(paths.modtran_template_file, 'w') as fout:
         fout.write(json.dumps(
             modtran_config, 
@@ -302,7 +308,7 @@ def main():
         for key in _keys
     }
     params["engine_config"] = modtran_engine_config 
-    params["build_interpolator"] = False 
+    params["build_interpolators"] = False 
     params['lut_grid'] = {
         key: params['lut_grid'][key] for key in
         modtran_engine_config.lut_names.keys()
@@ -317,7 +323,7 @@ def main():
         for key in _keys
     }
     params["engine_config"] = sixs_engine_config 
-    params["build_interpolator"] = False 
+    params["build_interpolators"] = False 
     params['lut_grid'] = {
         key: params['lut_grid'][key] for key in
         sixs_engine_config.lut_names.keys()
@@ -581,9 +587,9 @@ def build_main_config(
         radiative_transfer_config['lut_grid']['AERFRAC_2'] = [
             float(q) for q in aerfrac_2_lut_grid
         ]
-        # radiative_transfer_config['lut_grid']['AOT550'] = [
-        #     float(q) for q in aerfrac_2_lut_grid
-        # ]
+        radiative_transfer_config['lut_grid']['AOT550'] = [
+            float(q) for q in aerfrac_2_lut_grid
+        ]
 
     if paths.aerosol_model_path is not None:
         radiative_transfer_config[
@@ -615,7 +621,7 @@ def build_main_config(
             'H2OSTR','surface_elevation_km','observer_altitude_km',
             # 'viewzen','solar_zenith', 'relative_azimuth',
             'observer_zenith','solar_zenith', 'relative_azimuth',
-            'AERFRAC_2'
+            'AOT550'
         ] if x in radiative_transfer_config['lut_grid'].keys()
     }
     radiative_transfer_config[
