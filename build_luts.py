@@ -148,6 +148,7 @@ def main():
                 'to_solar_zenith_lut': [0, 30, 60],
                 #'to_solar_azimuth_lut': [0, 60, 120, 180],
                 'to_solar_azimuth_lut': [0, 90, 180],
+                'to_sensor_azimuth_lut': [0],
                 'to_sensor_zenith_lut': [140, 160, 180],
                 'altitude_km_lut': [2, 4, 7, 10, 15, 25, 99],
                 #'elevation_km_lut': [0, 0.75, 1.5, 2.25, 4.5, 6],
