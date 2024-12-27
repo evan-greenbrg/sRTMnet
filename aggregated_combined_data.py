@@ -54,37 +54,44 @@ def main():
 
     np.random.seed(13)
 
+
+
+
+    config = configs.create_new_config(args.config_file)
+
+    # Note - this goes way faster if you comment out the Vector Interpolater build section in each of these
+
+    rt_config = config.forward_model.radiative_transfer
+    instrument_config = config.forward_model.instrument
+
+    
+    params = {'engine_config': rt_config.radiative_transfer_engines[0]}
+    
+    params['lut_grid'] = confPriority('lut_grid', [params['engine_config'], instrument_config, rt_config])
+    params['lut_grid'] = {key: params['lut_grid'][key] for key in params['engine_config'].lut_names.keys()}
+    params['wavelength_file'] = confPriority('wavelength_file', [params['engine_config'], instrument_config, rt_config])
+    params['engine_config'].rte_configure_and_exit = False
+    params['engine_config'].rt_mode = 'rdn'
+    isofit_modtran = ModtranRT(**params)
+
+    params = {'engine_config' : rt_config.radiative_transfer_engines[1]}
+    
+    params['lut_grid'] = confPriority('lut_grid', [params['engine_config'], instrument_config, rt_config])
+    params['lut_grid'] = {key: params['lut_grid'][key] for key in params['engine_config'].lut_names.keys()}
+    params['engine_config'].rte_configure_and_exit = False
+    params['engine_config'].rt_mode = 'rdn'
+    params['wavelength_file'] = confPriority('wavelength_file', [params['engine_config'], instrument_config, rt_config])
+    isofit_sixs = SixSRT(**params)
+
+
+
+
+
+
     outdict_sixs, outdict_modtran = {}, {}
     munge_file = os.path.join(args.munge_dir, 'combined_data.npz')
+    good_points = np.ones(isofit_sixs.lut['rhoatm'].shape[0]).astype(bool)
     for key_ind, key in enumerate(args.keys):
-
-        if os.path.isfile(munge_file) is False:
-            config = configs.create_new_config(args.config_file)
-
-            # Note - this goes way faster if you comment out the Vector Interpolater build section in each of these
-
-            rt_config = config.forward_model.radiative_transfer
-            instrument_config = config.forward_model.instrument
-
-            
-            params = {'engine_config': rt_config.radiative_transfer_engines[0]}
-            
-            params['lut_grid'] = confPriority('lut_grid', [params['engine_config'], instrument_config, rt_config])
-            params['lut_grid'] = {key: params['lut_grid'][key] for key in params['engine_config'].lut_names.keys()}
-            params['wavelength_file'] = confPriority('wavelength_file', [params['engine_config'], instrument_config, rt_config])
-            params['engine_config'].rte_configure_and_exit = False
-            params['engine_config'].rt_mode = 'rdn'
-            isofit_modtran = ModtranRT(**params)
-
-            params = {'engine_config' : rt_config.radiative_transfer_engines[1]}
-            
-            params['lut_grid'] = confPriority('lut_grid', [params['engine_config'], instrument_config, rt_config])
-            params['lut_grid'] = {key: params['lut_grid'][key] for key in params['engine_config'].lut_names.keys()}
-            params['engine_config'].rte_configure_and_exit = False
-            params['engine_config'].rt_mode = 'rdn'
-            params['wavelength_file'] = confPriority('wavelength_file', [params['engine_config'], instrument_config, rt_config])
-            isofit_sixs = SixSRT(**params)
-
 
             if args.figs_dir is not None:
                 point_dims = list(isofit_modtran.lut_grid.keys())
@@ -130,15 +137,35 @@ def main():
             point_names = isofit_sixs.lut.point.to_index().names
             bad_points = np.zeros(isofit_sixs.lut[key].shape[0],dtype=bool)
             if 'surface_elevation_km' in point_names and 'observer_altitude_km' in point_names:
-                bad_points = isofit_sixs.lut[key][:, point_names.index('surface_elevation_km')]  >= isofit_sixs.lut[key][:, point_names.index('observer_altitude_km')] -2
+                bad_points = isofit_sixs.lut['surface_elevation_km']  >= isofit_sixs.lut['observer_altitude_km'] -2
+                bad_points[np.any(isofit_sixs.lut['transm_down_dif'].data[:,:] > 10,axis=1)] = True
+                bad_points[np.any(isofit_modtran.lut['transm_down_dif'].data[:,:] > 10,axis=1)] = True
                 good_points = np.logical_not(bad_points)
             
             outdict_sixs[key] = np.array(isofit_sixs.lut[key])[good_points,:]
             outdict_modtran[key] = np.array(isofit_modtran.lut[key])[good_points,:]
 
-    np.savez(munge_file, modtran_results=outdict_modtran, 
-                         sixs_results=outdict_sixs, 
-                         sol_irr=isofit_sixs.lut.solar_irr)
+    #keys=list(isofit_modtran.lut_grid.keys())
+    keys=['rhoatm','sphalb','transm_down_dir','transm_down_dif', 'transm_up_dir','transm_up_dif']
+    #keys=list(isofit_sixs.lut.point.to_index().names)
+    stacked_modtran = np.zeros((outdict_modtran[keys[0]].shape[0], outdict_modtran[keys[0]].shape[1] * len(keys)))
+    stacked_sixs = np.zeros((outdict_sixs[keys[0]].shape[0], outdict_sixs[keys[0]].shape[1] * len(keys)))
+    n_bands_modtran = int(stacked_modtran.shape[-1]/len(keys))
+    n_bands_sixs = int(stacked_sixs.shape[-1]/len(keys))
+    for n in range(len(keys)):
+        stacked_modtran[:,n*n_bands_modtran:(n+1)*n_bands_modtran] = outdict_modtran[keys[n]]
+        stacked_sixs[:,n*n_bands_sixs:(n+1)*n_bands_sixs] = outdict_sixs[keys[n]]
+
+
+    np.savez(munge_file, modtran_results=stacked_modtran, 
+                         sixs_results=stacked_sixs, 
+                         points=isofit_sixs.points[good_points,:],
+                         sol_irr=isofit_modtran.lut.solar_irr,
+                         sixs_wavelengths=isofit_sixs.wl,
+                         modtran_wavelengths=isofit_modtran.wl,
+                         point_names=list(isofit_sixs.lut.point.to_index().names),
+                         keys=keys
+                         )
 
 
 
