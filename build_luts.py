@@ -132,7 +132,7 @@ def main():
                 'elevation_km_lut': [0, 1.5, 4.5, 6],
                 'h2o_lut': list(np.sort(
                     np.round(np.linspace(0.1, 5, num=5), 3).tolist()
-                )),
+                )) + [0.7125, 1.9375, 3.162, 4.3875],
                 'aerfrac_2_lut': list(np.sort(
                     np.round(np.linspace(0.01, 1, num=5), 3).tolist()
                 ))
