@@ -40,6 +40,36 @@ def d2_subset(data,ranges):
     a = a[:,ranges[1]]
     return a
 
+def readModtran(modtran_obj, filename):
+    try:
+        solzen = modtran_obj.load_tp6(f"{filename}.tp6")
+        coszen = np.cos(solzen * np.pi / 180.0)
+        params = modtran_obj.load_chn(f"{filename}.chn", coszen)
+
+        # Remove thermal terms in VSWIR runs to avoid incorrect usage
+        if modtran_obj.treat_as_emissive is False:
+            for key in ["thermal_upwelling", "thermal_downwelling"]:
+                if key in params:
+                    Logger.debug(
+                        f"Deleting key because treat_as_emissive is False: {key}"
+                    )
+                    del params[key]
+
+        params["solzen"] = solzen
+        params["coszen"] = coszen
+
+        return params
+    except:
+        return None
+
+def readSixs(sixs_obj, filename, wl, multipart_transmittance=False, wl_size=0):
+
+    return sixs_obj.parse_file(
+            file=file,
+            wl=sixs_obj.wl,
+            multipart_transmittance=sixs_obj.multipart_transmittance,
+            wl_size=sixs_obj.wl.size,
+        )
 
 def main():
 
@@ -49,6 +79,7 @@ def main():
     parser.add_argument('-keys', type=str, default=['rhoatm', 'sphalb', 'transm_down_dir', 'transm_down_dif', 'transm_up_dir', 'transm_up_dif' ], nargs='+')
     parser.add_argument('-munge_dir', type=str, default='munged')
     parser.add_argument('-figs_dir', type=str, default=None)
+    parser.add_argument('-unstruct', type=int, default=0, choices=[0,1])
 
     args = parser.parse_args()
 
@@ -70,17 +101,29 @@ def main():
     params['lut_grid'] = confPriority('lut_grid', [params['engine_config'], instrument_config, rt_config])
     params['lut_grid'] = {key: params['lut_grid'][key] for key in params['engine_config'].lut_names.keys()}
     params['wavelength_file'] = confPriority('wavelength_file', [params['engine_config'], instrument_config, rt_config])
-    params['engine_config'].rte_configure_and_exit = False
-    params['engine_config'].rt_mode = 'rdn'
+    if args.unstruct:
+        params['engine_config'].rte_configure_and_exit = True
+    else:
+        params['engine_config'].rte_configure_and_exit = False
+    #params['engine_config'].rt_mode = 'rdn'
     isofit_modtran = ModtranRT(**params)
 
     params = {'engine_config' : rt_config.radiative_transfer_engines[1]}
     
     params['lut_grid'] = confPriority('lut_grid', [params['engine_config'], instrument_config, rt_config])
     params['lut_grid'] = {key: params['lut_grid'][key] for key in params['engine_config'].lut_names.keys()}
-    params['engine_config'].rte_configure_and_exit = False
-    params['engine_config'].rt_mode = 'rdn'
-    params['wavelength_file'] = confPriority('wavelength_file', [params['engine_config'], instrument_config, rt_config])
+    if args.unstruct:
+        params['engine_config'].rte_configure_and_exit = True
+    else:
+        params['engine_config'].rte_configure_and_exit = False
+    #params['engine_config'].rt_mode = 'rdn'
+
+    # Get raw 6s return, not wavelength convolved (this is what we'll use for inference too)
+    sixs_wl = np.arange(350, 2500 + 2.5, 2.5)
+    sixs_fwhm = np.full(sixs_wl.size, 2.0)
+    #params['wavelength_file'] = confPriority('wavelength_file', [params['engine_config'], instrument_config, rt_config])
+    params['wl'] = sixs_wl
+    params['fwhm'] = sixs_fwhm
     isofit_sixs = SixSRT(**params)
 
 
@@ -144,6 +187,25 @@ def main():
             
             outdict_sixs[key] = np.array(isofit_sixs.lut[key])[good_points,:]
             outdict_modtran[key] = np.array(isofit_modtran.lut[key])[good_points,:]
+
+
+    # hack at some things to prevent runaway values
+    outdict_sixs['transm_up_dif'][outdict_sixs['transm_up_dif'][:,:] > 1] = 0
+    outdict_sixs['transm_up_dif'][outdict_sixs['transm_up_dif'][:,:] < 0] = 0
+    outdict_modtran['transm_up_dif'][outdict_modtran['transm_up_dif'][:,:] > 1] = 0
+    outdict_modtran['transm_up_dif'][outdict_modtran['transm_up_dif'][:,:] < 0] = 0
+
+    outdict_sixs['sphalb'][:,isofit_sixs.wl > 1200][outdict_sixs['sphalb'][:,isofit_sixs.wl > 1200] > 0.1] = 0
+    outdict_sixs['sphalb'][outdict_sixs['sphalb'][:,:] < 0] = 0
+
+    subs = outdict_modtran['sphalb'][:,isofit_modtran.wl > 1200].copy()
+    subs[subs > 0.1] = 0
+    outdict_modtran['sphalb'][:,isofit_modtran.wl > 1200] = subs
+    print(np.sum(outdict_modtran['sphalb'][:,isofit_modtran.wl > 1200] > 0.1))
+
+    outdict_modtran['sphalb'][outdict_modtran['sphalb'][:,:] < 0] = 0
+
+
 
     #keys=list(isofit_modtran.lut_grid.keys())
     keys=['rhoatm','sphalb','transm_down_dir','transm_down_dif', 'transm_up_dir','transm_up_dif']

@@ -132,7 +132,7 @@ def main():
                 'elevation_km_lut': [0, 1.5, 4.5, 6],
                 'h2o_lut': list(np.sort(
                     np.round(np.linspace(0.1, 5, num=5), 3).tolist()
-                )) + [0.7125, 1.9375, 3.162, 4.3875],
+                )), #+ [0.7125, 1.9375, 3.162, 4.3875],
                 'aerfrac_2_lut': list(np.sort(
                     np.round(np.linspace(0.01, 1, num=5), 3).tolist()
                 ))
@@ -193,14 +193,15 @@ def main():
     print('Expected MODTRAN runtime: {} hrs'.format(n_lut_build*1.5))
     print('Expected MODTRAN runtime: {} days'.format(n_lut_build*1.5/24))
     print('Expected MODTRAN runtime per (40-core) node: {} days'.format(n_lut_build*1.5/24/40))
+
     
     # Create wavelength file
     if args.coarse is None:
-        wl = np.arange(0.350, 2.550, 0.0005)
+        wl = np.arange(0.350, 2.550, 0.0001)
         wl_file_contents = np.zeros((len(wl),3))
         wl_file_contents[:,0] = np.arange(len(wl),dtype=int)
         wl_file_contents[:,1] = wl
-        wl_file_contents[:,2] = 0.0005
+        wl_file_contents[:,2] = 0.0001
 
         np.savetxt(
             paths.wavelength_file, 
@@ -329,6 +330,12 @@ def main():
         sixs_engine_config.lut_names.keys()
     }
     # params['modtran_emulation'] = True
+
+    # always overwrite 6S wavelength with full raw 6S range
+    sixs_wl = np.arange(350, 2500 + 2.5, 2.5)
+    sixs_fwhm = np.full(sixs_wl.size, 2.0)
+    params['wl'] = sixs_wl
+    params['fwhm'] = sixs_fwhm
     isofit_sixs = SixSRT(**params)
 
     # cleanup

@@ -22,6 +22,8 @@ from isofit.core.common import resample_spectrum
 from scipy import interpolate
 import pickle
 
+#os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+
 
 def rho_to_rdn(rho,solar_irr,coszen):
     return rho / np.pi * solar_irr[np.newaxis,:] * coszen
@@ -119,6 +121,35 @@ def nn_model(in_data_shape, out_data_shape, num_layers=5):
 
 
 
+def nn_model_ind(in_data_shape, out_data_shape, num_keys, num_layers=1):
+
+    layer_depths = np.linspace(int(in_data_shape[-1]/num_keys),int(out_data_shape[-1]/num_keys),num=num_layers+1,dtype=int)
+
+    inlayer = keras.layers.Input(shape=(in_data_shape[-1],))
+    
+    instack = []
+    outstack = []
+    input_width = int(in_data_shape[-1]/num_keys)
+    for nk in range(num_keys):
+        #output_layer = keras.layers.Cropping1D(cropping=(0,(num_keys-1)*(in_data_shape[-1]/num_keys)))(inlayer)
+        output_layer = inlayer[:, nk*input_width:(nk+1)*input_width]
+
+        for _l in range(num_layers):
+            output_layer = keras.layers.Dense(units=layer_depths[_l])(output_layer)
+            output_layer = keras.layers.LeakyReLU(alpha=0.4)(output_layer)
+
+        output_layer = keras.layers.Dense(units=int(out_data_shape[-1]/num_keys), activation='linear')(output_layer)
+        outstack.append(output_layer)
+
+    output_merge = keras.layers.Concatenate()(outstack)
+
+    model = keras.models.Model(inputs=[inlayer], outputs=[output_merge])
+    optimizer=keras.optimizers.Adam(learning_rate=0.001)
+    #optimizer=keras.optimizers.Adam()
+    model.compile(loss='mse', optimizer=optimizer)
+
+    return model
+
 class SplitModel():
 
     def __init__(self,in_data_shape, out_data_shape, n_splits):
@@ -170,11 +201,22 @@ def main():
 
     np.random.seed(13)
 
+    #es = keras.callbacks.EarlyStopping(monitor='val_loss', mode='min', verbose=1, patience=20, restore_best_weights=True)
+    #train_sixs = np.ones((13905,5166))
+    #train_modtran = np.ones((13905, 129006))
+    #keys = np.ones(6)
+    #model = nn_model_ind(train_sixs.shape, train_modtran.shape, len(keys))
+    #print(model.summary())
+    #model.fit(train_sixs, train_modtran, batch_size=10, epochs=400,
+    #          validation_data=(train_sixs, train_modtran),callbacks=[es])
+    #exit()
+
+
 
     npzf = np.load(args.munged_file, allow_pickle=True)
 
-    modtran_results = npzf['modtran_results']
     sixs_results = npzf['sixs_results']
+    modtran_results = npzf['modtran_results']
     points = npzf['points']
     keys = npzf['keys']
     point_names = npzf['point_names']
@@ -191,6 +233,20 @@ def main():
     sixs_results[np.isnan(sixs_results)] = 0
     modtran_results[np.isfinite(modtran_results) == False] = 0
     sixs_results[np.isfinite(sixs_results) == False] = 0
+
+    max_wl = np.min([np.max(simulator_wavelengths),np.max(emulator_wavelengths)])
+    min_wl = np.max([np.min(simulator_wavelengths),np.min(emulator_wavelengths)])
+    emulator_idx = np.where(np.logical_and(emulator_wavelengths >= min_wl, emulator_wavelengths <= max_wl))[0]
+
+    modtran_results_clipped = np.zeros((modtran_results.shape[0], len(emulator_idx)*len(keys)))
+    for n in range(len(keys)):
+        modtran_results_clipped[:,n*len(emulator_idx):(n+1)*len(emulator_idx)] = modtran_results[:, emulator_idx + n_bands_modtran*n]
+
+    print(modtran_results.shape)
+    modtran_results = modtran_results_clipped
+    del modtran_results_clipped
+    n_bands_modtran = int(modtran_results.shape[-1]/len(keys))
+    emulator_wavelengths = emulator_wavelengths[emulator_idx]
 
     print(modtran_results.shape)
 
@@ -250,14 +306,14 @@ def main():
     monitor='val_loss'
         
     es = keras.callbacks.EarlyStopping(monitor=monitor, mode='min', verbose=1, patience=20, restore_best_weights=True)
-    model = nn_model(train_sixs.shape, modtran_results.shape)
+    model = nn_model_ind(train_sixs.shape, train_modtran.shape, len(keys))
+    print(model.summary())
 
 
     simple_response_scaler = np.ones(train_modtran.shape[1])*100
-    simple_response_scaler = 1/np.mean(train_modtran,axis=0)
     train_modtran *= simple_response_scaler
     #import ipdb; ipdb.set_trace()
-    model.fit(train_sixs[train,:], train_modtran[train,:], batch_size=1000, epochs=400,
+    model.fit(train_sixs[train,:], train_modtran[train,:], batch_size=10, epochs=400,
               validation_data=(train_sixs[test,:], train_modtran[test,:]),callbacks=[es])
     train_modtran /= simple_response_scaler
 
