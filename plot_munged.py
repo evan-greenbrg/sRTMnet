@@ -69,10 +69,27 @@ def main():
 
     bad_points = np.zeros(rtm_points.shape[0],dtype=bool)
     if 'surface_elevation_km' in point_names and 'observer_altitude_km' in point_names:
-        bad_points = rtm_points[:, point_names.index('surface_elevation_km')]  >= rtm_points[:, point_names.index('observer_altitude_km')] -2
-        good_points = np.logical_not(bad_points)
+        bad_points = rtm_points[:, point_names.index('surface_elevation_km')]  >= rtm_points[:, point_names.index('observer_altitude_km')] -3
+        bad_points[np.any(rtm_comp['transm_down_dif'].data[:,:] > 10,axis=1)] = True
+        bad_points[np.any(rtm['transm_down_dif'].data[:,:] > 10,axis=1)] = True
+    good_points = np.logical_not(bad_points)
     bad_ind = np.any(rtm_comp['transm_down_dif'].data[:,:] > 10,axis=1)
-    import ipdb; ipdb.set_trace()
+
+    rtm['transm_up_dif'].data[rtm['transm_up_dif'].data[:,:] > 1] = 0
+    rtm['transm_up_dif'].data[rtm['transm_up_dif'].data[:,:] < 0] = 0
+    rtm_comp['transm_up_dif'].data[rtm_comp['transm_up_dif'].data[:,:] > 1] = 0
+    rtm_comp['transm_up_dif'].data[rtm_comp['transm_up_dif'].data[:,:] < 0] = 0
+
+    rtm['sphalb'].data[:,rtm.wl > 1200][rtm['sphalb'].data[:,rtm.wl > 1200] > 0.1] = 0
+    rtm['sphalb'].data[rtm['sphalb'].data[:,:] < 0] = 0
+
+    print(np.sum(rtm_comp['sphalb'].data[:,rtm_comp.wl > 1200] > 0.1))
+    subs = rtm_comp['sphalb'].data[:,rtm_comp.wl > 1200].copy()
+    subs[subs > 0.1] = 0
+    rtm_comp['sphalb'].data[:,rtm_comp.wl > 1200] = subs
+    print(np.sum(rtm_comp['sphalb'].data[:,rtm_comp.wl > 1200] > 0.1))
+
+    rtm_comp['sphalb'].data[rtm_comp['sphalb'].data[:,:] < 0] = 0
 
     lims_main = [[0, 1], [0, 0.25], [0, 0.35]]
     lims_diff = [[0, 0.25], [0, 0.1], [0, 0.1]]
@@ -100,6 +117,7 @@ def main():
 
                 leg_lines.append(Line2D([0], [0], color=cmap(float(_val)/len(un_vals)), lw=2))
                 leg_names.append(str(round(val,2)))
+            plt.grid()
 
             #plt.ylim(lims_main[key_ind])
             plt.xlabel('Wavelength [nm]')
@@ -137,7 +155,8 @@ def main():
                 plt.title(f'{args.comparison_netcdf_name}: {key}')
                 for _val, val in enumerate(un_vals):
                     rtm_comp_slice = np.nanmean(rtm_comp[key].data[np.logical_and(slice == val, good_points), :], axis=0)
-                    plt.plot(rtm_comp.wl, rtm_comp_slice, c=cmap(float(_val)/len(un_vals)), linewidth=1, linestyle='--')
+                    plt.plot(rtm_comp.wl, rtm_comp_slice, c=cmap(float(_val)/len(un_vals)), linewidth=1)
+                plt.grid()
 
         plt.savefig(f'{args.fig_dir}/dim_{point_names[dim]}.png', dpi=200, bbox_inches='tight')
         plt.clf()
