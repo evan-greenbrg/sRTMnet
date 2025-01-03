@@ -250,6 +250,15 @@ def main():
 
     print(modtran_results.shape)
 
+    #fig = plt.figure(figsize=(20,5))
+    #gs = gridspec.GridSpec(ncols=1, nrows=2, wspace=0.3, hspace=0.4)
+    #ax = fig.add_subplot(gs[0, 0])
+    #plt.plot(np.mean(modtran_results,axis=0))
+    #ax = fig.add_subplot(gs[1, 0])
+    #plt.plot(np.mean(sixs_results,axis=0))
+    #plt.savefig('figs/h2o_comp/inputs.png',dpi=200,bbox_inches='tight')
+    #exit()
+
 
 
     if args.holdout_dim == -1:
@@ -306,14 +315,15 @@ def main():
     monitor='val_loss'
         
     es = keras.callbacks.EarlyStopping(monitor=monitor, mode='min', verbose=1, patience=20, restore_best_weights=True)
-    model = nn_model_ind(train_sixs.shape, train_modtran.shape, len(keys))
+    #model = nn_model_ind(train_sixs.shape, train_modtran.shape, len(keys))
+    model = nn_model(train_sixs.shape, train_modtran.shape)
     print(model.summary())
 
 
     simple_response_scaler = np.ones(train_modtran.shape[1])*100
     train_modtran *= simple_response_scaler
     #import ipdb; ipdb.set_trace()
-    model.fit(train_sixs[train,:], train_modtran[train,:], batch_size=10, epochs=400,
+    model.fit(train_sixs[train,:], train_modtran[train,:], batch_size=1000, epochs=400,
               validation_data=(train_sixs[test,:], train_modtran[test,:]),callbacks=[es])
     train_modtran /= simple_response_scaler
 
